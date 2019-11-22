@@ -24,26 +24,55 @@ namespace Reflection.Differentiation
                 ///(x) => 1
                 return Expression.Lambda<Func<double, double>>(
                     Expression.Constant(1d), x);
-            if(f is BinaryExpression expression)
+            var listOfTerms = GetTerms(f as BinaryExpression);
+            var termsCount = listOfTerms.Count;
+            do
             {
-                return GetParametrDiff(expression);
+                termsCount = listOfTerms.Count;
+                foreach (var term in listOfTerms)
+                {
+                    listOfTerms.AddRange(GetTerms(term as BinaryExpression));
+                }
+            } while (listOfTerms.Count != termsCount);
+            var diffListOfTerms = new Queue<Expression>();
+            foreach (var term in listOfTerms)
+            {
+                if(term is BinaryExpression)
+                {
+                    diffListOfTerms.Enqueue(GetParametrDiff(term as BinaryExpression));
+                }
             }
-            return null;
+            return BuildLambda(diffListOfTerms,x);
         }
 
-        private static Enumerable<Expression<Func<double,double>>> GetTerms(BinaryExpression binaryExpression)
+        private static Expression<Func<double,double>> BuildLambda(Queue<Expression> expressions, ParameterExpression x)
         {
+            if(expressions.Count == 1)
+                return Expression.Lambda<Func<double, double>>(expressions.Dequeue(), x);
 
+            var left = expressions.Dequeue();
+            Expression rigth;
+            while ((rigth = expressions.Dequeue())!=null)
+            {
+                left = Expression.Add(left, rigth);
+            }
+            return Expression.Lambda<Func<double, double>>(left, x);
+        }   
+        private static List<Expression> GetTerms(BinaryExpression binaryExpression)
+        {
+            return binaryExpression.NodeType == ExpressionType.Add 
+                ? new List<Expression>() { binaryExpression.Left, binaryExpression.Right } 
+                : new List<Expression>() { binaryExpression };
         }
 
-        private static Expression<Func<double,double>> GetParametrDiff(BinaryExpression expression)
+        private static Expression GetParametrDiff(BinaryExpression expression)
         {
             var x = Expression.Parameter(typeof(double), "x");
             var funcData = GetFunctionProperties(expression);
-            return Expression.Lambda<Func<double, double>>(
-                        Expression.Multiply(
+            return Expression.Multiply(
                         Expression.Constant(funcData.Constant * funcData.Pow),
-                        Expression.Call(null,typeof(Math).GetMethod("Pow"),x,Expression.Constant((double)(funcData.Pow - 1)))), x);
+                        Expression.Call(null,typeof(Math).GetMethod("Pow"),x,Expression.Constant((funcData.Pow - 1))));
+            
             FunctionProperty GetFunctionProperties(BinaryExpression subExpression)
             {
                 var funcInfo = new FunctionProperty();
