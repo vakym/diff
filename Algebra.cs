@@ -2,8 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Text;
-using System.Threading.Tasks;
+using System.Reflection;
 
 namespace Reflection.Differentiation
 {
@@ -11,78 +10,103 @@ namespace Reflection.Differentiation
     {
         public static Expression<Func<double, double>> Differentiate(Expression<Func<double, double>> function)
         {
-            var f = function.Body;
-            var x = Expression.Parameter(typeof(double), "x");
-            if (f is ConstantExpression) 
-                ///f(x) = c => f'(x) = 0
-                ///(x) => 0
-                return Expression.Lambda<Func<double, double>>(
-                    Expression.Constant(0d),x
-                    );
-            if(f is ParameterExpression)
-                ///f(x) = x => f'(x) = 1;
-                ///(x) => 1
-                return Expression.Lambda<Func<double, double>>(
-                    Expression.Constant(1d), x);
-            var listOfTerms = GetTerms(f as BinaryExpression);
-            var termsCount = listOfTerms.Count;
-            do
-            {
-                termsCount = listOfTerms.Count;
-                foreach (var term in listOfTerms)
-                {
-                    listOfTerms.AddRange(GetTerms(term as BinaryExpression));
-                }
-            } while (listOfTerms.Count != termsCount);
-            var diffListOfTerms = new Queue<Expression>();
-            foreach (var term in listOfTerms)
-            {
-                if(term is BinaryExpression)
-                {
-                    diffListOfTerms.Enqueue(GetParametrDiff(term as BinaryExpression));
-                }
-            }
-            return BuildLambda(diffListOfTerms,x);
+            x = function.Parameters.First();
+            return Expression
+                .Lambda<Func<double, double>>(BuildSumExpression(DifferentiateTerms(function.Body)), x);
         }
 
-        private static Expression<Func<double,double>> BuildLambda(Queue<Expression> expressions, ParameterExpression x)
+        private static ParameterExpression x;
+
+        private static Queue<Expression> DifferentiateTerms(Expression expression)
         {
-            if(expressions.Count == 1)
-                return Expression.Lambda<Func<double, double>>(expressions.Dequeue(), x);
+            var listOfTerms = GetAllTerms(expression);
+            var diffTerms = new Queue<Expression>();
+            foreach (var term in listOfTerms)
+            {
+                switch (term.NodeType)
+                {
+                    case ExpressionType.Constant:
+                        diffTerms.Enqueue(GetConstantDiff());
+                        break;
+                    case ExpressionType.Call:
+                        diffTerms.Enqueue(GetMethodDiff(term as MethodCallExpression));
+                        break;
+                    default:
+                        diffTerms.Enqueue(GetParametrDiff(term));
+                        break;
+                }
+            }
+            return diffTerms;
+        }
+
+        private static List<Expression> GetAllTerms(Expression expression)
+        {
+            var terms = new List<Expression>();
+            if (expression is BinaryExpression binaryExpression
+                && expression.NodeType == ExpressionType.Add)
+            {
+                AddExpressionToList(binaryExpression.Left);
+                AddExpressionToList(binaryExpression.Right);
+            }
+            else
+                terms.Add(expression);
+            return terms;
+
+            void AddExpressionToList(Expression subExpression)
+            {
+                if (subExpression is BinaryExpression subbinaryExpression)
+                {
+                    terms.AddRange(GetAllTerms(subbinaryExpression));
+                }
+                else
+                {
+                    terms.Add(subExpression);
+                }
+            }
+        }
+
+        private static Expression BuildSumExpression(Queue<Expression> expressions)
+        {
+            if (expressions.Count == 1)
+                return expressions.Dequeue();
 
             var left = expressions.Dequeue();
             Expression rigth;
-            while ((rigth = expressions.Dequeue())!=null)
+            while (expressions.Count != 0)
             {
+                rigth = expressions.Dequeue();
                 left = Expression.Add(left, rigth);
             }
-            return Expression.Lambda<Func<double, double>>(left, x);
-        }   
-        private static List<Expression> GetTerms(BinaryExpression binaryExpression)
-        {
-            return binaryExpression.NodeType == ExpressionType.Add 
-                ? new List<Expression>() { binaryExpression.Left, binaryExpression.Right } 
-                : new List<Expression>() { binaryExpression };
+            return left;
         }
-
-        private static Expression GetParametrDiff(BinaryExpression expression)
+        #region Rules of differentiation
+        //f(x) = c*x^y => f'(x) = c*y*x^y-1  c,y - constant
+        private static Expression GetParametrDiff(Expression expression)
         {
-            var x = Expression.Parameter(typeof(double), "x");
-            var funcData = GetFunctionProperties(expression);
+            if (expression is ParameterExpression)
+                return Expression.Constant(1d);
+            var functionProperties = GetFunctionProperties(expression as BinaryExpression);
+            if (functionProperties.Constant == 0)
+            {
+                functionProperties.Constant = 1;
+            }
             return Expression.Multiply(
-                        Expression.Constant(funcData.Constant * funcData.Pow),
-                        Expression.Call(null,typeof(Math).GetMethod("Pow"),x,Expression.Constant((funcData.Pow - 1))));
-            
+                      Expression.Constant(functionProperties.Constant * functionProperties.Pow),
+                      Expression.Call(null,
+                                      typeof(Math).GetMethod("Pow"),
+                                      x,
+                                      Expression.Constant((functionProperties.Pow - 1))));
+
             FunctionProperty GetFunctionProperties(BinaryExpression subExpression)
             {
                 var funcInfo = new FunctionProperty();
-                if(!IsTheEndNode(subExpression.Left))
+                if (!IsTheEndNode(subExpression.Left))
                 {
                     funcInfo += GetFunctionProperties(subExpression.Left as BinaryExpression);
                 }
                 else
                 {
-                    if(subExpression.Left is ConstantExpression constant)
+                    if (subExpression.Left is ConstantExpression constant)
                     {
                         funcInfo.Constant += (double)constant.Value;
                     }
@@ -99,7 +123,7 @@ namespace Reflection.Differentiation
                 {
                     if (subExpression.Right is ConstantExpression constant)
                     {
-                        funcInfo.Constant+= (double)constant.Value;
+                        funcInfo.Constant += (double)constant.Value;
                     }
                     else
                     {
@@ -108,12 +132,49 @@ namespace Reflection.Differentiation
                 }
                 return funcInfo;
             }
+            bool IsTheEndNode(Expression checkExpression)
+            {
+                return checkExpression is ConstantExpression || checkExpression is ParameterExpression;
+            }
         }
-       
-        private static bool IsTheEndNode(Expression expression)
+
+        //f(x) = c => f'(x) = 0 c - constant
+        private static Expression GetConstantDiff()
         {
-            return expression is ConstantExpression || expression is ParameterExpression;
+            return Expression.Constant(0d);
         }
+
+        //f(x) = sin(x) => f'(x) = cos(x)
+        //f(x) = sin(x^2) => f'(x) = sin(x^2)*2
+        private static Expression GetMethodDiff(MethodCallExpression term)
+        {
+            var method = GetMethod(term.Method, term.Arguments.ToArray());
+            if ((term.Arguments.First().NodeType != ExpressionType.Parameter))
+            {
+                var ex = BuildSumExpression(DifferentiateTerms(term.Arguments.First()));
+                return Expression.Multiply(method, ex);
+            }
+            else
+            {
+                return method;
+            }
+            Expression GetMethod(MethodInfo currentMethod, Expression[] expressions)
+            {
+                if (currentMethod.Name == "Sin")
+                {
+                    return Expression.Call(null, typeof(Math).GetMethod("Cos"), expressions);
+                }
+                if (currentMethod.Name == "Cos")
+                {
+                    return Expression.Multiply(
+                        Expression.Constant(-1d),
+                        Expression.Call(null, typeof(Math).GetMethod("Sin"), expressions));
+                }
+                throw new NotImplementedException($"Differentiation for the {currentMethod.Name}" +
+                    $" method has not yet been implemented");
+            }
+        }
+        #endregion
     }
 
     public class FunctionProperty
@@ -121,9 +182,10 @@ namespace Reflection.Differentiation
         public double Constant { get; set; }
         public double Pow { get; set; }
 
-        public static FunctionProperty operator +(FunctionProperty left,FunctionProperty rigth)
+        public static FunctionProperty operator +(FunctionProperty left, FunctionProperty rigth)
         {
-            return new FunctionProperty() { Constant = left.Constant + rigth.Constant, Pow = left.Pow + rigth.Pow };
+            return new FunctionProperty()
+            { Constant = left.Constant + rigth.Constant, Pow = left.Pow + rigth.Pow };
         }
     }
 }
