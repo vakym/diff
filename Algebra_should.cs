@@ -61,13 +61,6 @@ namespace Reflection.Differentiation
             ///          z      z
         }
 
-        [Test]
-        public void Sum3()
-        {
-            TestDerivative(z => z + z+z+z);
-            ///             +
-            ///          z      z
-        }
 
         [Test]
 		public void Sum2()
