@@ -8,7 +8,8 @@ namespace Reflection.Differentiation
 {
     public static class Algebra
     {
-        public static Expression<Func<double, double>> Differentiate(Expression<Func<double, double>> function)
+        public static Expression<Func<double, double>> Differentiate(
+                                                            Expression<Func<double, double>> function)
         {
             x = function.Parameters.First();
             return function.Body.GetTerms()
@@ -21,8 +22,8 @@ namespace Reflection.Differentiation
 
         private static IEnumerable<Expression> GetTerms(this Expression expression)
         {
-           if(expression.NodeType == ExpressionType.Add && 
-              expression is BinaryExpression addExpression)
+            if (expression.NodeType == ExpressionType.Add &&
+            expression is BinaryExpression addExpression)
             {
                 foreach (var left in GetTerms(addExpression.Left))
                 {
@@ -32,9 +33,8 @@ namespace Reflection.Differentiation
                 {
                     yield return rigth;
                 }
-
             }
-           else
+            else
                 yield return expression;
         }
 
@@ -70,7 +70,8 @@ namespace Reflection.Differentiation
             return left;
         }
 
-        private static Expression<Func<double, double>> CreateLambda(this Expression expression, ParameterExpression parameter)
+        private static Expression<Func<double, double>> CreateLambda(this Expression expression,
+                                                                     ParameterExpression parameter)
         {
             return Expression
                 .Lambda<Func<double, double>>(expression, parameter);
@@ -88,7 +89,7 @@ namespace Reflection.Differentiation
                       Expression.Call(null,
                                       typeof(Math).GetMethod("Pow"),
                                       x,
-                                      Expression.Constant((functionFeatures.Pow - 1))));  
+                                      Expression.Constant((functionFeatures.Pow - 1))));
         }
 
         //f(x) = c => f'(x) = 0 c - constant
@@ -114,6 +115,7 @@ namespace Reflection.Differentiation
             {
                 return derivative;
             }
+
             Expression GetDerivative(MethodInfo currentMethod, Expression[] arguments)
             {
                 if (currentMethod.Name == "Sin")
@@ -143,7 +145,7 @@ namespace Reflection.Differentiation
             return new FunctionFeatures()
             {
                 Constant = left.Constant + rigth.Constant,
-                Pow = left.Pow + rigth.Pow 
+                Pow = left.Pow + rigth.Pow
             };
         }
 
@@ -160,6 +162,7 @@ namespace Reflection.Differentiation
             var funcFeatures = new FunctionFeatures();
             funcFeatures += CheckSubExpression(function.Left);
             funcFeatures += CheckSubExpression(function.Right);
+
             FunctionFeatures CheckSubExpression(Expression checkExpression)
             {
                 var ff = new FunctionFeatures();
@@ -180,10 +183,12 @@ namespace Reflection.Differentiation
                 }
                 return ff;
             }
+
             bool IsTheEndNode(Expression checkExpression)
             {
                 return checkExpression is ConstantExpression || checkExpression is ParameterExpression;
             }
+
             return funcFeatures;
         }
     }
